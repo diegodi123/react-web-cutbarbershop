@@ -1,0 +1,89 @@
+image: node:14-alpine
+
+stages:
+  - test
+  - package
+  - deploy
+
+before_script:
+- whoami
+- pwd
+
+test_integration:
+  stage: test
+  before_script:
+    - npm install -g broken-link-checker wait-on
+  script:
+    - yarn install && yarn start &
+    - wait-on http://localhost:3000/ --timeout 300000
+    - blc --recursive --exclude-external http://localhost:3000
+
+vulnerabilities_check:
+  stage: test
+  script:
+    - echo "ok"
+
+package_web:
+  stage: package
+  cache:
+    key: site-package
+    policy: push
+    paths:
+      - ./build
+  artifacts:
+    name: "$CI_JOB_NAME-$CI_COMMIT_REF_NAME"
+    when: always
+    expire_in: 2h00min
+    paths:
+      - ./build
+  script:
+    - yarn
+    - yarn build
+
+deploy_to_develop: &deploy
+  stage: deploy
+  variables:
+    CNAME: develop.cutbarbershop.surge.sh
+    GIT_STRATEGY: none
+  cache:
+    key: site-package
+    policy: pull
+  before_script:
+    - npm install -g surge
+    - surge login
+  script:
+    - surge --project ./build/ --domain ${CNAME}
+  environment:
+    name: develop
+    url: http://${CNAME}
+  only:
+   - develop
+
+deploy_to_release: &deploy-release
+  <<: *deploy
+  variables:
+    CNAME: $CI_COMMIT_REF_SLUG.app-cutbarbershop.surge.sh
+  environment:
+    name: review/$CI_COMMIT_REF_SLUG
+    on_stop: turnoff
+  only:
+    - /^release-.*$/
+
+turnoff:
+  <<: *deploy-release
+  script:
+    - surge teardown ${CNAME}
+  when: manual
+  environment:
+    name: review/$CI_COMMIT_REF_SLUG
+    action: stop
+
+deploy_to_production:
+  <<: *deploy
+  variables:
+    CNAME: app-cutbarbershop.surge.sh
+  environment:
+    name: production
+  only:
+   - master
+b2
