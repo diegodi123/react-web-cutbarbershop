@@ -86,4 +86,3 @@ deploy_to_production:
     name: production
   only:
    - master
-b2
